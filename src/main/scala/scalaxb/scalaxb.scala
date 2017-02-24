@@ -1,13 +1,11 @@
 package scalaxb
 
-import scala.xml.{Node, NodeSeq, NamespaceBinding, Elem, UnprefixedAttribute, PrefixedAttribute}
-import javax.xml.datatype.{XMLGregorianCalendar}
-import javax.xml.namespace.QName
 import javax.xml.bind.DatatypeConverter
+import javax.xml.datatype.XMLGregorianCalendar
+import javax.xml.namespace.QName
 
-import scala.language.postfixOps
-import scala.language.implicitConversions
-import scala.language.existentials
+import scala.language.{existentials, implicitConversions, postfixOps}
+import scala.xml.{Elem, NamespaceBinding, Node, NodeSeq}
 
 object `package` {
   import annotation.implicitNotFound
@@ -616,8 +614,8 @@ object ElemName {
 }
 
 trait AnyElemNameParser extends scala.util.parsing.combinator.Parsers {
-  import scala.collection.mutable.ListBuffer
   import scala.annotation.tailrec
+  import scala.collection.mutable.ListBuffer
   type Elem = ElemName
 
   implicit class ReaderExt(reader: scala.util.parsing.input.Reader[ElemName]) {
@@ -879,8 +877,8 @@ object Helper {
   }
 
   def toCalendar(value: java.util.GregorianCalendar): XMLGregorianCalendar = {
-    import javax.xml.datatype._
     import java.util.{GregorianCalendar, Calendar => JCalendar}
+    import javax.xml.datatype._
 
     val xmlGregorian = DataTypeFactory.get().newXMLGregorianCalendar()
     if (value.getTimeZone != null) {

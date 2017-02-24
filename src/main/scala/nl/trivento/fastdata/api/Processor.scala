@@ -1,19 +1,14 @@
 package nl.trivento.fastdata.api
 
-import akka.actor.ActorSystem
-import akka.kafka.ProducerMessage.{Message, Result}
-import akka.kafka._
-import akka.kafka.scaladsl.{Consumer, Producer}
-import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Flow, Sink}
-import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
-import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord, RecordMetadata}
-import org.apache.kafka.common.serialization.{Deserializer, Serializer}
 import java.util.concurrent.Future
 
-import akka.Done
-
-import scala.concurrent.duration.FiniteDuration
+import akka.actor.ActorSystem
+import akka.kafka.scaladsl.Consumer
+import akka.kafka.{ConsumerMessage, ConsumerSettings, ProducerSettings, Subscriptions}
+import akka.stream.ActorMaterializer
+import akka.stream.scaladsl.Sink
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord, RecordMetadata}
+import org.apache.kafka.common.serialization.{Deserializer, Serializer}
 
 /**
   * Created by koen on 08/02/2017.

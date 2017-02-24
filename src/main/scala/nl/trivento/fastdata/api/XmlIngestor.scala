@@ -11,33 +11,50 @@ import scala.xml.pull._
   * Created by koen on 13/02/2017.
   */
 object XmlIngestor {
-  def fromInputStream(inputStream: InputStream, triggers: Map[String, (Elem) => Option[Elem]]): Unit = {
+  def apply(triggers: Map[String, (Elem) => Option[Elem]]): XmlIngestor = {
+    new XmlIngestor(triggers)
+  }
+}
+
+class XmlIngestor(triggers: Map[String, (Elem) => Option[Elem]]) {
+  def fromInputStream(inputStream: InputStream): Unit = {
     val reader: XMLEventReader = new XMLEventReader(Source.fromInputStream (inputStream) (scala.io.Codec.fallbackSystemCodec) )
     var path = "/"
-    val stack = new mutable.Stack[Elem]
+    var stack = Seq.empty[Elem]
 
     def start(prefix: String, label: String, attributes: MetaData, scope: NamespaceBinding) {
       path = path + (if (prefix != null) prefix + ":" + label + "/" else label + "/")
-      stack.push(Elem(prefix, label, attributes, scope, false))
+      stack = Elem(prefix, label, attributes, scope, false) +: stack
     }
 
     def end(name: String): Unit = {
       if (!path.endsWith(name + "/")) throw new IllegalStateException("Bad XML")
 
-      val done = stack.pop()
-      if (stack.nonEmpty) {
-        triggers
-          .getOrElse(path, (e: Elem) => Option(e))(done)
-          .foreach(e => stack.update(0, stack.top.copy(child = stack.top.child :+ e)))
+      stack = stack match {
+        case Seq(done, tail @ _*) =>
+          triggers.get(path).map(f => f(done)).getOrElse(Option(done)).map(updateStack(tail, _)).getOrElse(tail)
+        case _ => Seq.empty
       }
 
       path = path.substring(0, path.length - name.length - 1)
     }
 
+    def updateStack(stack: Seq[Elem], child: Node): Seq[Elem] = {
+      stack match {
+        case Seq(parent, tail @ _*) => updateElem(parent, child) +: tail
+        case Seq(parent) => Seq(parent)
+        case Nil => Nil
+      }
+    }
+
+    def updateElem(elem: Elem, child: Node): Elem = {
+      elem.copy(child = elem.child :+ child)
+    }
+
     while (reader.hasNext) {
       reader.next() match {
         case EvText(text) =>
-          stack.update(0, stack.top.copy(child = stack.top.child :+ Text(text)))
+          stack = updateStack(stack, Text(text))
         case EvElemStart(null, label: String, attrs: MetaData, scope: NamespaceBinding) =>
           start(null, label, attrs, scope)
         case EvElemStart(pre: String, label: String, attrs: MetaData, scope: NamespaceBinding) =>
@@ -47,7 +64,7 @@ object XmlIngestor {
         case EvElemEnd(pre: String, label: String) =>
           end(pre + ":" + label)
         case EvEntityRef(entity) =>
-          stack.update(0, stack.top.copy(child = stack.top.child :+ EntityRef(entity)))
+          updateStack(stack, EntityRef(entity))
       }
     }
   }

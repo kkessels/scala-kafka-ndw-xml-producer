@@ -40,21 +40,6 @@ class NdwProducer[T](config: Properties) {
   }
 }
 
-///**
-//  * Created by koen on 13/02/2017.5
-//  */
-//class NdwProducer[T : SchemaFor : ToRecord](config: Properties) {
-//  private val producer = new ScalaKafkaProducer[String, Bytes](config, new StringSerializer, new BytesSerializer)
-//
-//  def send(topic: String, key: String, record: T): Future[RecordMetadata] = {
-//    val baos = new ByteArrayOutputStream()
-//    try {
-//      AvroOutputStream.binary[T](baos)
-//      producer.send(new ProducerRecord(topic, key, new Bytes(baos.toByteArray)))
-//    } finally baos.close()
-//  }
-//}
-
 object NdwSource {
   def main(args: Array[String]) {
     val properties = new Properties()
@@ -74,7 +59,7 @@ object NdwSource {
     def loadSituationRecords(): Unit = {
       val producer = new NdwProducer[SituationRecord](properties)
 
-      XmlIngestor.fromInputStream(new GZIPInputStream(new URL("http://opendata.ndw.nu/incidents.xml.gz").openStream()),
+      XmlIngestor(
         Map(
           "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/situation/situationRecord/groupOfLocations/linearExtension/linearByCoordinatesExtension/" ->
             (e => None),
@@ -85,13 +70,16 @@ object NdwSource {
               val situationRecord: SituationRecord = scalaxb.fromXML[SituationRecord](element)
               producer.send("incidents", situationRecord.id, situationRecord)
               Option(element)
-            })))
+            }
+          )
+        )
+      ).fromInputStream(new GZIPInputStream(new URL("http://opendata.ndw.nu/incidents.xml.gz").openStream()))
     }
 
     def loadMeasurementSiteRecords(): Unit = {
       val producer = new NdwProducer[MeasurementSiteRecord](properties)
 
-      XmlIngestor.fromInputStream(new GZIPInputStream(new URL("http://opendata.ndw.nu/measurement.xml.gz").openStream()),
+      XmlIngestor(
         Map(
           "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/measurementSiteTable/measurementSiteRecord/measurementSiteLocation/locationContainedInItinerary/location/linearExtension/" ->
             (e => None),
@@ -100,13 +88,16 @@ object NdwSource {
               val measurementSite: MeasurementSiteRecord = scalaxb.fromXML[MeasurementSiteRecord](element)
               producer.send("sites", measurementSite.id, measurementSite)
               Option(element)
-            })))
+            }
+          )
+        )
+      ).fromInputStream(new GZIPInputStream(new URL("http://opendata.ndw.nu/measurement.xml.gz").openStream()))
     }
 
     def loadSiteMeasurements(): Unit = {
       val producer = new NdwProducer[_SiteMeasurementsIndexMeasuredValue](properties)
 
-      XmlIngestor.fromInputStream(new GZIPInputStream(new URL("http://opendata.ndw.nu/trafficspeed.xml.gz").openStream()),
+      XmlIngestor(
         Map(
           ("/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/siteMeasurements/",
             element => {
@@ -115,7 +106,10 @@ object NdwSource {
                 value => producer.send("measurements", siteMeasurements.measurementSiteReference.id, value)
               )
               Option(element)
-            })))
+            }
+          )
+        )
+      ).fromInputStream(new GZIPInputStream(new URL("http://opendata.ndw.nu/trafficspeed.xml.gz").openStream()))
     }
   }
 }
