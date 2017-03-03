@@ -2,7 +2,6 @@ package nl.trivento.fastdata.api
 
 import java.io.InputStream
 
-import scala.collection.mutable
 import scala.io.Source
 import scala.xml._
 import scala.xml.pull._
