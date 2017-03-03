@@ -1,0 +1,139 @@
+package nl.trivento.fastdata.ndw.processor
+
+import java.util
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+
+import akka.actor.ActorSystem
+import akka.kafka.scaladsl.Consumer
+import akka.kafka.{ConsumerSettings, Subscriptions}
+import akka.stream.ActorMaterializer
+import com.fasterxml.jackson.annotation.JsonInclude.Include
+import com.fasterxml.jackson.annotation.JsonTypeInfo
+import com.fasterxml.jackson.databind.ObjectMapper.DefaultTypeResolverBuilder
+import com.fasterxml.jackson.databind.{JavaType, ObjectMapper}
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
+import kafka.message.SnappyCompressionCodec
+import nl.trivento.fastdata.api.Processor
+import nu.ndw.{DirectionEnum, GroupOfLocations, MeasurementSiteRecord, MeasurementSpecificCharacteristics, SiteMeasurements, TrafficFlowType, TrafficSpeed, TrafficStatus}
+import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.common.serialization._
+
+import scala.concurrent.duration.FiniteDuration
+
+/**
+  * Created by koen on 24/02/2017.
+  */
+
+case class Sensor(id: String, index: Int, name: String, direction: Option[DirectionEnum], location: GroupOfLocations,
+                  measurement: MeasurementSpecificCharacteristics)
+
+case class SensorMeasurement(sensor: Sensor, time: Long, value: Double)
+
+class JsonSerializer[T](cls: Class[T]) extends Serializer[T] with Deserializer[T] {
+  private val mapper = new ObjectMapper()
+
+  mapper.setDefaultTyping(new DefaultTypeResolverBuilder(null) {
+    init(JsonTypeInfo.Id.CLASS, null)
+    inclusion(JsonTypeInfo.As.PROPERTY)
+
+    override def useForType(t: JavaType): Boolean =
+      !t.isPrimitive && t.getRawClass.getPackage.getName == "nu.ndw" && !t.isFinal
+  })
+  mapper.setSerializationInclusion(Include.NON_EMPTY)
+  mapper.registerModule(DefaultScalaModule)
+
+  override def configure(configs: util.Map[String, _], isKey: Boolean): Unit = {
+
+  }
+
+  override def deserialize(topic: String, data: Array[Byte]): T = mapper.readValue(data, cls)
+
+  override def serialize(topic: String, data: T): Array[Byte] = mapper.writeValueAsBytes(data)
+
+  override def close(): Unit = {
+
+  }
+}
+
+class NdwMeasurementMetadataCollector(implicit val system: ActorSystem) {
+  private implicit val materializer = ActorMaterializer.create(system)
+//
+//  private val consumerSettings = ConsumerSettings[String, String](system, new StringDeserializer, new StringDeserializer)
+//    .withBootstrapServers("master:9092")
+//    .withGroupId("cgSensors")
+
+  private val consumerProperties = Map[String, String](
+    "compression.codec" -> SnappyCompressionCodec.codec.toString,
+    "producer.type" -> "sync",
+    "metadata.broker.list" -> "master:9092",
+    "bootstrap.servers" -> "master:9092",
+    "message.send.max.retries" -> "5",
+    "request.required.acks" -> "-1",
+    "client.id" -> UUID.randomUUID().toString)
+
+  private val consumerSettings = new ConsumerSettings[String, MeasurementSiteRecord](consumerProperties, Some(new StringDeserializer),
+    Some(new JsonSerializer[MeasurementSiteRecord](classOf[MeasurementSiteRecord])),
+    FiniteDuration(10, TimeUnit.MILLISECONDS),
+    FiniteDuration(1000, TimeUnit.MILLISECONDS),
+    FiniteDuration(1000, TimeUnit.MILLISECONDS),
+    FiniteDuration(1000, TimeUnit.MILLISECONDS),
+    FiniteDuration(1000, TimeUnit.MILLISECONDS),
+    FiniteDuration(1000, TimeUnit.MILLISECONDS),
+    10,
+    "")
+
+  private var sensors: Map[(String, Int), Sensor] = Map.empty
+
+  Consumer.committableSource(consumerSettings, Subscriptions.topics("sites")).runForeach(msg => {
+    val siteRecord = msg.record.value()
+    sensors = sensors ++
+      siteRecord.measurementSpecificCharacteristics.map(c =>
+        (siteRecord.id, c.index) -> Sensor(siteRecord.id, c.index,
+        siteRecord.id,
+        siteRecord.measurementSide,
+        siteRecord.measurementSiteLocation,
+        c.measurementSpecificCharacteristics)).toMap
+
+    msg.committableOffset.commitScaladsl()
+  })
+
+  def get(id: String, index: Int): Option[Sensor] = sensors.get(id, index)
+}
+
+class NdwMeasurementStreamer(
+                              implicit val system: ActorSystem,
+                              metadata: NdwMeasurementMetadataCollector) extends
+  Processor[String, SiteMeasurements, String, SensorMeasurement](
+    system,
+    "measurements",
+    new StringDeserializer,
+    new JsonSerializer[SiteMeasurements](classOf[SiteMeasurements]),
+    "sensorMeasurements",
+    new StringSerializer,
+    new JsonSerializer[SensorMeasurement](classOf[SensorMeasurement])) {
+
+  override def action(key: String, measurements: SiteMeasurements): Seq[ProducerRecord[String, SensorMeasurement]] = {
+    val time = measurements.measurementTimeDefault.toGregorianCalendar.getTimeInMillis
+
+    for {
+      value <- measurements.measuredValue
+      sensor <- metadata.get(measurements.measurementSiteReference.id, value.index)
+      measurement <- value.measuredValue.basicData match {
+        case Some(speed: TrafficSpeed) => speed.averageVehicleSpeed.map(m => SensorMeasurement(sensor, time, m.speed))
+        case Some(flow: TrafficFlowType) => flow.vehicleFlow.filter(_.dataError.getOrElse(true)).map(m => SensorMeasurement(sensor, time, m.vehicleFlowRate))
+        case Some(status: TrafficStatus) => None
+        case _ => None
+      }
+    } yield new ProducerRecord("sensorMeasurements", key, measurement)
+  }
+}
+
+object NdwMerge {
+  private implicit val system = ActorSystem.create
+
+  def main(args: Array[String]): Unit = {
+    implicit val metadata = new NdwMeasurementMetadataCollector()
+//    new NdwMeasurementStreamer
+  }
+}
