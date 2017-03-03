@@ -18,7 +18,7 @@ object XmlIngestor {
 
 class XmlIngestor(triggers: Map[String, (Elem) => Option[Elem]]) {
   def fromInputStream(inputStream: InputStream): Unit = {
-    val reader: XMLEventReader = new XMLEventReader(Source.fromInputStream (inputStream) (scala.io.Codec.fallbackSystemCodec) )
+    val reader: XMLEventReader = new XMLEventReader(Source.fromInputStream(inputStream)(scala.io.Codec.fallbackSystemCodec))
     var path = "/"
     var stack = Seq.empty[Elem]
 

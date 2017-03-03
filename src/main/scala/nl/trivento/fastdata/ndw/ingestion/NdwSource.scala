@@ -46,8 +46,8 @@ object NdwSource {
 
     properties.put("compression.codec", SnappyCompressionCodec.codec.toString)
     properties.put("producer.type", "sync")
-    properties.put("metadata.broker.list", "10.248.30.190:9092")
-    properties.put("bootstrap.servers", "10.248.30.190:9092")
+    properties.put("metadata.broker.list", "localhost:9092")
+    properties.put("bootstrap.servers", "localhost:9092")
     properties.put("message.send.max.retries", "5")
     properties.put("request.required.acks", "-1")
     properties.put("client.id", UUID.randomUUID().toString)
