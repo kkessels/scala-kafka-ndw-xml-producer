@@ -30,7 +30,7 @@ object NdwSource {
     val properties = new Properties()
 
     //properties.put("compression.type", CompressionType.SNAPPY.name)
-    properties.put("bootstrap.servers", "master:9092")
+    properties.put("bootstrap.servers", "localhost:9092")
     properties.put("acks", "-1")
     properties.put("client.id", UUID.randomUUID().toString)
 
@@ -71,7 +71,7 @@ object NdwSource {
             (e => None),
           "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/measurementSiteTable/measurementSiteRecord/" ->
             (element => {
-              val measurementSite: MeasurementSiteRecord = scalaxb.fromXML[MeasurementSiteRecord](element)
+//              val measurementSite: MeasurementSiteRecord = scalaxb.fromXML[MeasurementSiteRecord](element)
               producer.send("sites", getAttr(element, "id"), element.toString)
               Option(element)
             }
@@ -87,8 +87,9 @@ object NdwSource {
         Map(
           ("/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/siteMeasurements/",
             element => {
-              val siteMeasurements: SiteMeasurements = scalaxb.fromXML[SiteMeasurements](element)
-              producer.send("measurements", siteMeasurements.measurementSiteReference.id, element.toString)
+//              val siteMeasurements: SiteMeasurements = scalaxb.fromXML[SiteMeasurements](element)
+//              producer.send("measurements", siteMeasurements.measurementSiteReference.id, element.toString)
+              producer.send("measurements", getAttr(element, "id"), element.toString)
               Option(element)
             }
           )
