@@ -1,4 +1,4 @@
-package nl.trivento.fastdata.ndw.serialization
+package nl.trivento.fastdata.ndw.shared.serialization
 
 import com.fasterxml.jackson.annotation.JsonInclude.Include
 import com.fasterxml.jackson.annotation.JsonTypeInfo

@@ -7,11 +7,12 @@ import java.util.regex.Pattern
 
 import akka.actor.{Actor, ActorRef, ActorSystem, Inbox, Props}
 import akka.kafka.scaladsl.Consumer
-import akka.kafka.{ConsumerSettings, Subscriptions}
+import akka.kafka.{ConsumerSettings, ProducerSettings, Subscriptions}
 import akka.stream.ActorMaterializer
+import nl.trivento.fastdata.ndw.shared.serialization.JsonSerializer
 import nu.ndw.{DirectionEnum, GroupOfLocations, LaneEnum, Linear, LinearElementByPoints, MeasuredOrDerivedDataTypeEnum, MeasurementSiteRecord, Point, PointCoordinates, SiteMeasurements, TrafficFlow, TrafficFlowType, TrafficSpeed, TrafficSpeedValue, TrafficStatus, TrafficStatusInformation, TravelTimeInformation, VehicleCharacteristics}
-import org.apache.kafka.common.record.CompressionType
-import org.apache.kafka.common.serialization.{Deserializer, StringDeserializer}
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+import org.apache.kafka.common.serialization.{Deserializer, StringDeserializer, StringSerializer}
 
 import scala.xml.XML
 import scalaxb.XMLFormat
@@ -42,7 +43,6 @@ case class LatLong(lat: Double, long: Double)
 case class Heat(heat: Double, location: LatLong, to: LatLong*)
 
 class SensorActor extends Actor {
-  private def speedMapActor = context.actorSelection("/speedMap")
   private var heatFunc: Option[Double => Heat] = None
   private var sensor: Option[Sensor] = None
   private var measurements: List[Double] = List.empty
@@ -60,7 +60,7 @@ class SensorActor extends Actor {
   def speed: Receive = {
     case sensor: Sensor => becomeSensor(sensor)
     case m: Measurement =>
-      heatFunc.foreach(speedMapActor ! _(dev(m.value)))
+      heatFunc.foreach(sender ! _(dev(m.value)))
       measurements = (if (measurements.length == 10) measurements.tail else measurements) :+ m.value
   }
 
@@ -72,7 +72,7 @@ class SensorActor extends Actor {
   def traveltime: Receive = {
     case sensor: Sensor => becomeSensor(sensor)
     case m: Measurement =>
-      heatFunc.foreach(speedMapActor ! _(-dev(m.value)))
+      heatFunc.foreach(sender ! _(-dev(m.value)))
       measurements = (if (measurements.length == 10) measurements.tail else measurements) :+ m.value
   }
 
@@ -115,6 +115,17 @@ class SensorActor extends Actor {
 
 class SensorNetworkActor extends Actor {
   private val pattern = Pattern.compile("[^a-zA-Z0-9\\-_\\.\\*\\$\\+\\:\\@\\&\\=,\\!\\~\\';]")
+  private var heatProducer: KafkaProducer[String, Heat] = null
+
+  override def preStart(): Unit = {
+    super.preStart()
+    heatProducer = ProducerSettings[String, Heat](
+      context.system,
+      new StringSerializer(),
+      new JsonSerializer[Heat](classOf[Heat]))
+      .withBootstrapServers("master:9092")
+      .createKafkaProducer()
+  }
 
   override def receive: Receive = {
     case measurements: SiteMeasurements =>
@@ -147,6 +158,8 @@ class SensorNetworkActor extends Actor {
 
           Sensor(NdwSensorId(id, e.index), time, direction, location, measurementType, vehicleCharacteristics, numberOfLanes, lane)})
         .foreach(send)
+
+    case heat: Heat => heatProducer.send(new ProducerRecord("heat", "NL", heat))
   }
 
   def actorName(ndwSensorId: NdwSensorId): String = {
@@ -181,7 +194,7 @@ class NdwActorPerSensor() {
     new StringDeserializer(),
     new XmlDeserializer[MeasurementSiteRecord])
     .withProperty("auto.offset.reset", "earliest")
-    .withProperty("compression.type", CompressionType.SNAPPY.name)
+//    .withProperty("compression.type", CompressionType.SNAPPY.name)
     .withBootstrapServers("master:9092")
     .withClientId(UUID.randomUUID().toString)
     .withGroupId("ndw_sites_" + UUID.randomUUID.toString)
@@ -197,7 +210,7 @@ class NdwActorPerSensor() {
     new StringDeserializer(),
     new XmlDeserializer[SiteMeasurements])
     .withProperty("auto.offset.reset", "earliest")
-    .withProperty("compression.type", CompressionType.SNAPPY.name)
+//    .withProperty("compression.type", CompressionType.SNAPPY.name)
     .withBootstrapServers("master:9092")
     .withClientId(UUID.randomUUID().toString)
     .withGroupId("ndw_measurements_" + UUID.randomUUID.toString)

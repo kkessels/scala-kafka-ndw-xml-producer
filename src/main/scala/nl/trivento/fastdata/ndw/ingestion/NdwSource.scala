@@ -43,6 +43,7 @@ object NdwSource {
     }
 
     def loadSituationRecords(): Unit = {
+      properties.put("client.id", UUID.randomUUID().toString)
       lazy val producer = new NdwProducer(properties)
 
       XmlIngestor(
@@ -63,6 +64,7 @@ object NdwSource {
     }
 
     def loadMeasurementSiteRecords(): Unit = {
+      properties.put("client.id", UUID.randomUUID().toString)
       lazy val producer = new NdwProducer(properties)
 
       XmlIngestor(
@@ -81,6 +83,7 @@ object NdwSource {
     }
 
     def loadSiteMeasurements(): Unit = {
+      properties.put("client.id", UUID.randomUUID().toString)
       lazy val producer = new NdwProducer(properties)
 
       XmlIngestor(
