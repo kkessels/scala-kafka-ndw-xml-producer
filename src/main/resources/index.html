@@ -155,7 +155,7 @@
                         xy.x = Math.floor(xy.x);
                         xy.y = Math.floor(xy.y);
                         console.log(xy.x, xy.y);
-                        self.canvasContext.fillRect(xy.x, xy.y, 1, 1);
+                        self.canvasContext.fillRect(xy.x - 1, xy.y - 1, 3, 3);
                     });
                     console.log('drew ' + Object.values(points).length + ' points');
                 };
@@ -185,6 +185,7 @@
                         {}
                     );
                     points = Object.assign({}, points, newPoints);
+                    overlay.draw();
                 };
 
             }
