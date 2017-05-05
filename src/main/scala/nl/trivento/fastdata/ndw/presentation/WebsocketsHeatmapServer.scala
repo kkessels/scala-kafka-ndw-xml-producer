@@ -11,12 +11,11 @@ import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import akka.kafka.scaladsl.Consumer
 import akka.kafka.{ConsumerSettings, Subscriptions}
-import akka.stream.{ActorMaterializer, OverflowStrategy}
 import akka.stream.scaladsl.{Flow, Sink, Source}
+import akka.stream.{ActorMaterializer, OverflowStrategy}
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import nl.trivento.fastdata.ndw.processor.{Heat, LatLong}
-import nl.trivento.fastdata.ndw.shared.serialization.JsonSerializer
 import nl.trivento.fastdata.ndw.shared.serialization.TypedJsonDeserializer
 import org.apache.kafka.common.serialization.StringDeserializer
 
@@ -28,10 +27,8 @@ case class Subscribe(listener: ActorRef, topic: ActorRef)
 
 case class RemoveSubscription()
 
-case class Mutation(heat: Heat)
-
-class CachingTopic extends Actor with ActorLogging {
-  private val cache = mutable.HashMap.empty[LatLong, Heat]
+class CachingTopic[IN, K](getKey: (IN) => K, getValue: (IN) => String) extends Actor with ActorLogging {
+  private val cache = mutable.HashMap.empty[K, String]
   private val subscriptions = mutable.HashSet.empty[ActorRef]
 
   override def preStart(): Unit = {
@@ -41,33 +38,33 @@ class CachingTopic extends Actor with ActorLogging {
   override def receive: Receive = {
     case AddSubscription =>
       context.watch(sender())
-      log.info("New subscription, send " + cache.values.size + " heat points in cache");
-      sender ! cache.values.toArray[Heat]
+      log.info("New subscription, send " + cache.values.size + " heat points in cache")
+      sender ! cache.values.toArray[String]
       subscriptions.add(sender())
     case RemoveSubscription =>
       subscriptions.remove(sender())
-    case m: Mutation =>
-      cache.put(m.heat.location, m.heat)
-      subscriptions.foreach(_ ! Array(m.heat))
-    case Terminated => subscriptions.remove(sender())
+    case m: IN =>
+      val value = getValue(m)
+      cache.put(getKey(m), value)
+      subscriptions.foreach(_ ! Array(value))
+    case Terminated =>
+      subscriptions.remove(sender())
   }
 }
 
-class Subscription extends Actor with ActorLogging {
+class Subscription[V] extends Actor with ActorLogging {
   private var listener: Option[ActorRef] = None
 
   override def receive: Receive = {
     case s: Subscribe =>
-      log.info("Subscribing " + s.listener + " to " + s.topic)
       context.become(subscription)
       listener = Option(s.listener)
       s.topic ! AddSubscription
   }
 
   def subscription: Receive = {
-    case h: Array[Heat] =>
-      log.info("Forwarding " + h.length + " items from topic")
-      listener.foreach(_ ! h)
+    case values: Array[V] =>
+      listener.foreach(_ ! values)
   }
 }
 
@@ -76,18 +73,29 @@ object WebsocketsHeatmapServer {
   private implicit val materializer = ActorMaterializer.create(actorSystem)
   private val objectMapper = new ObjectMapper()
   objectMapper.registerModule(DefaultScalaModule)
-  private val hub = actorSystem.actorOf(Props[CachingTopic])
+  private val hub = actorSystem.actorOf(
+    Props(
+      new CachingTopic[Heat, LatLong](
+        (heat: Heat) => heat.location,
+        (heat: Heat) => objectMapper.writeValueAsString(heat)
+      )
+    )
+  )
 
   def start(): Unit = {
+    val BUFFER_SIZE = 65536
+
     val consumerSettings = ConsumerSettings[String, Heat](actorSystem, new StringDeserializer(),
       new TypedJsonDeserializer[Heat](classOf[Heat]))
       .withProperty("auto.offset.reset", "earliest")
       .withBootstrapServers("master:9092")
       .withClientId(UUID.randomUUID().toString)
       .withGroupId("ndw_heatmaps_" + UUID.randomUUID.toString)
+      .withProperty("fetch.max.wait.ms", "5000")
+      .withProperty("fetch.min.bytes", "4096")
 
     Consumer.plainSource(consumerSettings, Subscriptions.topics("heat"))
-      .map(message => Mutation(message.value()))
+      .map(message => message.value())
       .to(Sink.actorRef(hub, RemoveSubscription))
       .run()
 
@@ -102,17 +110,22 @@ object WebsocketsHeatmapServer {
           }
         } ~
         path("listen") {
-          val subscriptionActor = actorSystem.actorOf(Props[Subscription])
+          val subscriptionActor = actorSystem.actorOf(Props[Subscription[TextMessage]])
 
           val outgoingMessages: Source[TextMessage, NotUsed] =
-            Source.actorRef[Array[Heat]](10, OverflowStrategy.fail)
+            Source.actorRef[Array[String]](BUFFER_SIZE * 4, OverflowStrategy.dropTail)
               .mapMaterializedValue { outActor =>
                 // give the user actor a way to send messages out
                 subscriptionActor ! Subscribe(outActor, hub)
                 NotUsed
-              }.map(outMsg => TextMessage(objectMapper.writeValueAsString(outMsg)))
+              }
+            .batch(BUFFER_SIZE, strings => strings)((result, append) => result ++ append)
+            .map((batch) => {
+              System.out.println("Sending batch of " + batch.length)
+              TextMessage(batch.addString(StringBuilder.newBuilder, "[", ",", "]").toString())
+            })
 
-          handleWebSocketMessages(Flow.fromSinkAndSource(Sink.ignore, outgoingMessages))
+            handleWebSocketMessages(Flow.fromSinkAndSource(Sink.ignore, outgoingMessages))
         }
       }
     )

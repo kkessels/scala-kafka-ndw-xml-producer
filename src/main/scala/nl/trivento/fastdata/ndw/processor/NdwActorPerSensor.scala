@@ -5,7 +5,7 @@ import java.util
 import java.util.UUID
 import java.util.regex.Pattern
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Inbox, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Inbox, Props}
 import akka.kafka.scaladsl.Consumer
 import akka.kafka.{ConsumerSettings, ProducerSettings, Subscriptions}
 import akka.stream.ActorMaterializer
@@ -85,7 +85,7 @@ class SensorActor extends Actor {
     val all = measurements :+ measurement
     val avg = all.sum / all.length
     val stddev = Math.sqrt(all.map(d => Math.pow(d - avg, 2)).sum / all.length)
-    Math.pow((measurement - avg) / stddev, 2)
+    if (stddev != 0) (measurement - avg) / stddev else 0
   }
 
   def becomeSensor(sensor: Sensor): Unit = {
@@ -113,9 +113,9 @@ class SensorActor extends Actor {
   }
 }
 
-class SensorNetworkActor extends Actor {
+class SensorNetworkActor extends Actor with ActorLogging {
   private val pattern = Pattern.compile("[^a-zA-Z0-9\\-_\\.\\*\\$\\+\\:\\@\\&\\=,\\!\\~\\';]")
-  private var heatProducer: KafkaProducer[String, Heat] = null
+  private var heatProducer: KafkaProducer[String, Heat] = _
 
   override def preStart(): Unit = {
     super.preStart()
@@ -124,6 +124,10 @@ class SensorNetworkActor extends Actor {
       new StringSerializer(),
       new JsonSerializer[Heat](classOf[Heat]))
       .withBootstrapServers("master:9092")
+      .withParallelism(8)
+      .withProperty("batch.size", "16384")
+      .withProperty("linger.ms", "100")
+      .withProperty("buffer.memory", "33554432")
       .createKafkaProducer()
   }
 
@@ -159,7 +163,9 @@ class SensorNetworkActor extends Actor {
           Sensor(NdwSensorId(id, e.index), time, direction, location, measurementType, vehicleCharacteristics, numberOfLanes, lane)})
         .foreach(send)
 
-    case heat: Heat => heatProducer.send(new ProducerRecord("heat", "NL", heat))
+    case heat: Heat =>
+      log.info("Emitting" + heat)
+      heatProducer.send(new ProducerRecord("heat", "NL", heat))
   }
 
   def actorName(ndwSensorId: NdwSensorId): String = {
