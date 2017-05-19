@@ -5,7 +5,6 @@ import java.util.zip.GZIPInputStream
 import java.util.{Properties, UUID}
 
 import nl.trivento.fastdata.api.{ScalaKafkaProducer, XmlIngestor}
-import nu.ndw.{MeasurementSiteRecord, SiteMeasurements, SituationRecord}
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.serialization.StringSerializer
 
@@ -30,7 +29,8 @@ object NdwSource {
     val properties = new Properties()
 
     //properties.put("compression.type", CompressionType.SNAPPY.name)
-    properties.put("bootstrap.servers", "localhost:9092")
+//    properties.put("bootstrap.servers", "localhost:9092")
+    properties.put("bootstrap.servers", "broker-0.kafka.mesos:9671")
     properties.put("acks", "-1")
     properties.put("client.id", UUID.randomUUID().toString)
 

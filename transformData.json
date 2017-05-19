@@ -1,0 +1,27 @@
+{
+  "id": "ndw-transform-data",
+  "container":{
+    "docker":{
+      "forcePullImage":true,
+      "image":"kkessels/ndw-test-kafkastreaming-assembly-0.1-snapshot.jar",
+      "network":"BRIDGE",
+      "parameters":[
+
+      ],
+      "privileged":false
+    },
+    "type":"DOCKER",
+    "volumes":[
+
+    ]
+  },
+  "cpus":1,
+  "mem":2048,
+  "env":{
+    "KAFKA_BROKERS":"broker-0.kafka.mesos:9900",
+    "KAFKA_FROM_TOPIC":"nwin",
+    "KAFKA_TO_TOPIC":"nwout",
+    "KAFKA_ERROR_TOPIC":"nwerr",
+    "ZOOKEEPER_URL":"master.mesos:2181/dcos-service-kafka"
+  }
+}

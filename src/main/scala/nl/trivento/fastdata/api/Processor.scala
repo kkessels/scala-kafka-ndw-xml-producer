@@ -1,6 +1,6 @@
 package nl.trivento.fastdata.api
 
-import java.util.{Properties, UUID}
+import java.util.UUID
 import java.util.concurrent.{Future, TimeUnit}
 
 import akka.actor.ActorSystem

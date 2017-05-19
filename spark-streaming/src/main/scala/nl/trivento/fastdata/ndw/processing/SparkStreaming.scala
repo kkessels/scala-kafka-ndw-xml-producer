@@ -10,19 +10,19 @@ import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
 import org.apache.spark.streaming.{Duration, StreamingContext}
 import org.apache.spark.sql.SparkSession
 
-import scala.xml.{Elem, XML}
+import scala.xml.XML
 
 /**
   * Created by kkessels on 07/03/17.
   */
 object SparkStreaming extends App {
 
-  case class SiteInfo(id: String, speeds: List[(Float, Boolean)],
-                      intensities: List[(BigInt, Boolean)],
-                      travelTimes: List[(Float, Float, Float)])
+  case class SiteInfo(id: String, speeds: List[Float],
+                      intensities: List[BigInt],
+                      travelTimes: List[Float])
 
   val kafkaParams = Map[String, Object](
-    "bootstrap.servers" -> "localhost:9092",
+    "bootstrap.servers" -> "broker-0.kafka.mesos:9671",
     "key.deserializer" -> classOf[StringDeserializer],
     "value.deserializer" -> classOf[StringDeserializer],
     "group.id" -> "spark-stream-test",
@@ -45,9 +45,7 @@ object SparkStreaming extends App {
     Subscribe[String, String](topics, kafkaParams)
   )
 
-  case class TestThing(info: String)
-
-  val result = stream.map(record => {
+  val processedData: DStream[(Float, BigInt, Float)] = stream.map(record => {
     val d = scalaxb.fromXML[SiteMeasurements](
       XML.loadString(
         record.value()
@@ -57,28 +55,30 @@ object SparkStreaming extends App {
     val id = d.measurementSiteReference.id
     val data = d.measuredValue.flatMap(_.measuredValue.basicData)
 
-    val speeds = data.flatMap{ _ match {
+    val speeds = data.flatMap { _ match {
       case speed: TrafficSpeed => speed.averageVehicleSpeed
+        .filterNot(_.dataError.getOrElse(false))
+        .map(_.speed)
       case _ => None
-    }}.toList.map(s => (s.speed, s.dataError match {
-      case Some(b: Boolean) => b
-      case _ => true
-    }))
+    }}.toList
 
-    val intensities = data.flatMap{ _ match {
+    val intensities = data.flatMap { _ match {
       case intensity: TrafficFlowType => intensity.vehicleFlow
+        .filterNot(_.dataError.getOrElse(true))
+        .map(_.vehicleFlowRate)
       case _ => None
-    }}.toList.map(f => (f.vehicleFlowRate, f.dataError match {
-      case Some(b: Boolean) => b
-      case _ => true
-    }))
+    }}.toList
 
     val travelTimes = (for {
-      TravelTimeData(_, _, _, _, _, _, _, freeFlow, normalFlow, currentFlow, _, _, _) <- data
-      DurationValue(_, _, _, freeFlowTime, _, _) <- freeFlow
-      DurationValue(_, _, _, normalFlowTime, _, _) <- normalFlow
-      DurationValue(_, _, _, currentFlowTime, _, _) <- currentFlow
-    } yield (freeFlowTime, normalFlowTime, currentFlowTime)).toList
+      ttd : TravelTimeData <- data.collect({case t: TravelTimeData => t})
+      fftt: DurationValue <- ttd.freeFlowTravelTime
+      nett: DurationValue <- ttd.normallyExpectedTravelTime
+      tt: DurationValue <- ttd.travelTime
+    } yield /*(fftt.duration, nett.duration, */tt.duration).toList
+
+//    val travelTimes = data.flatMap { _ match {
+//      case travelTimes: TravelTimeData => travelTimes.travelTime
+//    }}
 
     //      val test = data.flatMap{
     //        case t: TrafficFlowType => Option(t)
@@ -86,9 +86,16 @@ object SparkStreaming extends App {
     //      }
     //      test
     SiteInfo(id, speeds, intensities, travelTimes)
-  })
+  }).reduceByWindow((current, next) =>
+    SiteInfo("averages", current.speeds ::: next.speeds, current.intensities ::: next.intensities, current.travelTimes ::: next.travelTimes)
+    , Duration(1*1000), Duration(1*1000)
+  ).map(record =>
+    (if(record.speeds.nonEmpty) record.speeds.sum / record.speeds.length else 0,
+      if(record.intensities.nonEmpty) record.intensities.sum / record.intensities.length else 0,
+      if(record.travelTimes.nonEmpty) record.travelTimes.sum / record.travelTimes.length else 0)
+    )
 
-  result.print()
+  processedData.print()
 
   streamingContext.start()
 

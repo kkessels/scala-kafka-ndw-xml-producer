@@ -9,7 +9,8 @@ import akka.actor.{Actor, ActorRef, ActorSystem, Inbox, Props}
 import akka.kafka.scaladsl.Consumer
 import akka.kafka.{ConsumerSettings, Subscriptions}
 import akka.stream.ActorMaterializer
-import nu.ndw.{DirectionEnum, GroupOfLocations, LaneEnum, Linear, LinearElementByPoints, MeasuredOrDerivedDataTypeEnum, MeasurementSiteRecord, Point, PointCoordinates, SiteMeasurements, TrafficFlow, TrafficFlowType, TrafficSpeed, TrafficSpeedValue, TrafficStatus, TrafficStatusInformation, TravelTimeInformation, VehicleCharacteristics}
+import generated.{DirectionEnum, GroupOfLocations, LaneEnum, Linear, LinearElementByPoints, MeasuredOrDerivedDataTypeEnum, MeasurementSiteRecord, Point, PointCoordinates, SiteMeasurements, TrafficFlow, TrafficFlowType, TrafficSpeed, TrafficSpeedValue, TrafficStatus, TrafficStatusInformation, TravelTimeInformation, VehicleCharacteristics}
+//import nu.ndw.{DirectionEnum, GroupOfLocations, LaneEnum, Linear, LinearElementByPoints, MeasuredOrDerivedDataTypeEnum, MeasurementSiteRecord, Point, PointCoordinates, SiteMeasurements, TrafficFlow, TrafficFlowType, TrafficSpeed, TrafficSpeedValue, TrafficStatus, TrafficStatusInformation, TravelTimeInformation, VehicleCharacteristics}
 import org.apache.kafka.common.record.CompressionType
 import org.apache.kafka.common.serialization.{Deserializer, StringDeserializer}
 
@@ -127,7 +128,7 @@ class SensorNetworkActor extends Actor {
 
           value.measuredValue.basicData match {
           case Some(speed: TrafficSpeed) => speed.averageVehicleSpeed.map(m => Measurement(sensorId, time, m.speed))
-          case Some(flow: TrafficFlowType) => flow.vehicleFlow.filter(_.dataError.getOrElse(true)).map(m => Measurement(sensorId, time, m.vehicleFlowRate))
+          case Some(flow: TrafficFlowType) => flow.vehicleFlow.filter(_.dataError.getOrElse(true)).map(m => Measurement(sensorId, time, m.vehicleFlowRate.toDouble))
           case Some(status: TrafficStatus) => None
           case _ => None}})
         .foreach(send)
@@ -145,7 +146,7 @@ class SensorNetworkActor extends Actor {
           val vehicleCharacteristics = e.measurementSpecificCharacteristics.specificVehicleCharacteristics
           val lane = e.measurementSpecificCharacteristics.specificLane
 
-          Sensor(NdwSensorId(id, e.index), time, direction, location, measurementType, vehicleCharacteristics, numberOfLanes, lane)})
+          Sensor(NdwSensorId(id, e.index), time, direction, location, measurementType, vehicleCharacteristics, numberOfLanes.map(_.toInt), lane)})
         .foreach(send)
   }
 
