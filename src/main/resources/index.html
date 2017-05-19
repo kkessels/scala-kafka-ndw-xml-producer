@@ -1,0 +1,201 @@
+<html>
+    <head>
+        <title>Fast Data Demo</title>
+    </head>
+    <meta name="viewport" content="initial-scale=1.0">
+    <meta charset="utf-8">
+    <style>
+        /* Always set the map height explicitly to define the size of the div
+         * element that contains the map. */
+        #map {
+            height: 100%;
+        }
+        /* Optional: Makes the sample page fill the window. */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+    </style>
+    <body>
+        <div id="map"></div>
+        <!-- AIzaSyASs9OE7muQPL6HwoSolRLmwfnBfurKgJY -->
+        <script async defer
+                src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASs9OE7muQPL6HwoSolRLmwfnBfurKgJY&callback=initMap"
+                type="text/javascript"></script>
+        <script>
+            function CanvasContextMap(canvasContext2D, overlayView) {
+                const project = function(pts) {
+                    return pts
+                        .map(function(latlong) { return overlayView.getProjection().fromLatLngToDivPixel(latlong) })
+                        .reduce(function(result, pt) {
+                            result.push(pt.x, pt.y); return result }, []);
+                };
+                this.fillStyle = canvasContext2D.fillStyle;
+                this.strokeStyle = canvasContext2D.strokeStyle;
+                this.shadowColor = canvasContext2D.shadowColor;
+                this.shadowBlur = canvasContext2D.shadowBlur;
+                this.shadowOffsetX = canvasContext2D.shadowOffsetX;
+                this.shadowOffsetY = canvasContext2D.shadowOffsetY;
+                this.lineCap = canvasContext2D.lineCap;
+                this.lineJoin = canvasContext2D.lineJoin;
+                this.lineWidth = canvasContext2D.lineWidth;
+                this.miterLimit = canvasContext2D.miterLimit;
+                this.font = canvasContext2D.font;
+                this.textAlign = canvasContext2D.textAlign;
+                this.textBaseline = canvasContext2D.textBaseline;
+                this.globalAlpha = canvasContext2D.globalAlpha;
+                this.globalCompositeOperation = canvasContext2D.globalCompositeOperation;
+
+                this.scale = function() {}; // no-op
+                this.rotate = function() {}; // no-op
+                this.translate = function() {}; // no-op
+                this.transform = function() {}; // no-op
+                this.setTransform = function() {}; // no-op
+
+                this.createLinearGradient = function() { return canvasContext2D.createLinearGradient() };
+                this.createPattern = function() { return canvasContext2D.createPattern() };
+                this.createRadialGradient = function() { return canvasContext2D.createRadialGradient() };
+                this.addColorStop = function() { return canvasContext2D.addColorStop };
+                this.fill = function() { canvasContext2D.fill() };
+                this.stroke = function() { canvasContext2D.stroke() };
+                this.clip = function() { canvasContext2D.clip() };
+                this.measureText = function(text) { return canvasContext2D.measureText(text) };
+                this.createImageData = function() { return canvasContext2D.createImageData() };
+                this.getImageData = function() { return canvasContext2D.getImageData() };
+                this.putImageData = function() { return canvasContext2D.putImageData() };
+                this.beginPath = function() { canvasContext2D.beginPath() };
+                this.closePath = function() { canvasContext2D.closePath() };
+                this.rect = function(ll1, ll2) {
+                    canvasContext2D.rect.apply(canvasContext2D, project([ll1, ll2]))
+                };
+                this.fillRect = function(ll1, ll2) {
+                    canvasContext2D.fillRect.apply(canvasContext2D, project([ll1, ll2]))
+                };
+                this.strokeRect = function(ll1, ll2) {
+                    canvasContext2D.strokeRect.apply(canvasContext2D, project([ll1, ll2]))
+                };
+                this.clearRect = function(ll1, ll2) {
+                    canvasContext2D.clearRect.apply(canvasContext2D, project([ll1, ll2]))
+                };
+                this.moveTo = function(ll) {
+                    canvasContext2D.moveTo.apply(canvasContext2D, project(ll));
+                };
+                this.lineTo = function(ll) {
+                    canvasContext2D.lineTo.apply(canvasContext2D, project(ll));
+                };
+                this.quadraticCurveTo = function(ll1, ll2) {
+                    canvasContext2D.quadraticCurveTo.apply(canvasContext2D, project([ll1, ll2]))
+                };
+                this.bezierCurveTo = function(ll1, ll2) {
+                    canvasContext2D.bezierCurveTo.apply(canvasContext2D, project([ll1, ll2]))
+                };
+                this.arc = function(center, edge, start, end, reverse) {
+                    const pts = project([center, edge]);
+
+                    const dist = Math.sqrt(
+                        Math.max(1,
+                            ((pts[0] - pts[2]) * (pts[0] - pts[2])) +
+                            ((pts[1] - pts[3]) * (pts[1] - pts[3]))));
+
+                    canvasContext2D.arc.apply(canvasContext2D, [pts[0], pts[1], dist, start, end, reverse]);
+                };
+                this.arcTo = function(ll1, ll2) {}; //not implemented yet
+                this.isPointInPath = function(ll) {
+                    canvasContext2D.isPointInPath.apply(canvasContext2D, project(ll));
+                };
+                this.fillText = function(text, ll) {
+                    const p = project(ll);
+                    canvasContext2D.fillText(canvasContext2D, [text, p[0], p[1]]);
+                };
+                this.strokeText = function(text, ll) {
+                    const p = project(ll);
+                    canvasContext2D.strokeText(canvasContext2D, [text, p[0], p[1]]);
+                };
+                this.drawImage = function(img, ll) {
+                    const p = project(ll);
+                    canvasContext2D.drawImage(canvasContext2D, [img, p[0], p[1]]);
+                }
+            }
+
+            function initMap() {
+                var map;
+                var overlay;
+                function CanvasOverlay(map) {
+                    this.canvas = null;
+                    this.canvasContext = null;
+                    this.mapCanvasContext = null;
+
+                    this.setMap(map);
+                }
+                CanvasOverlay.prototype = new google.maps.OverlayView();
+                CanvasOverlay.prototype.onAdd = function() {
+                    var canvas = document.createElement('canvas');
+                    canvas.style.display = 'block';
+                    canvas.top = 0;
+                    canvas.left = 0;
+                    canvas.height = window.innerHeight;
+                    canvas.width = window.innerWidth;
+                    this.canvas = canvas;
+                    this.canvasContext = canvas.getContext('2d');
+                    this.mapCanvasContext = new CanvasContextMap(this.canvasContext, this);
+
+                    // Add the element to the "overlayLayer" pane.
+                    var panes = this.getPanes();
+                    panes.floatPane.appendChild(canvas);
+                };
+                CanvasOverlay.prototype.draw = function() {
+                    this.canvasContext.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                    const self = this;
+                    convert = function(p) { return self.getProjection().fromLatLngToDivPixel(p) };
+                    Object.values(points).forEach(function(heat) {
+                        const xy = convert(heat.position);
+                        xy.x = Math.floor(xy.x);
+                        xy.y = Math.floor(xy.y);
+                        if (heat.heat < 0) {
+                            //blue
+                            self.canvasContext.fillStyle = 'rgba(0, 0, 255, ' + Math.min(1, -heat.heat / 5) + ')';
+                        } else {
+                            //red
+                            self.canvasContext.fillStyle = 'rgba(255, 0, 0, ' + Math.min(1, heat.heat / 5) + ')';
+                        }
+                        self.canvasContext.fillRect(xy.x - 1, xy.y - 1, 3, 3);
+                    });
+                    console.log('drew ' + Object.values(points).length + ' points');
+                };
+
+                map = new google.maps.Map(document.getElementById('map'), {
+                    center: {lat: 52.1950998, lng: 5.0366441},
+                    zoom: 7
+                });
+
+                var points = {};
+                var ignored = 0;
+
+                overlay = new CanvasOverlay(map);
+
+                var ws = new WebSocket("ws://localhost:8888/listen");
+                ws.onmessage = function(message) {
+                    const heatPoints = JSON.parse(message.data);
+                    const newPoints = heatPoints.reduce(
+                        function(mutations, heat) {
+                            const latLng = new google.maps.LatLng(heat.location.lat, heat.location.long);
+                            mutations[latLng.toString()] = {
+                                position: latLng,
+                                heat: heat.heat
+                            };
+                            return mutations;
+                        },
+                        {}
+                    );
+                    points = Object.assign({}, points, newPoints);
+                    overlay.draw();
+                };
+
+            }
+        </script>
+
+    </body>
+</html>
