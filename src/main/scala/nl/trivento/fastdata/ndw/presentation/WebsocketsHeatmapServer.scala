@@ -91,8 +91,10 @@ object WebsocketsHeatmapServer {
       .withBootstrapServers("master:9092")
       .withClientId(UUID.randomUUID().toString)
       .withGroupId("ndw_heatmaps_" + UUID.randomUUID.toString)
-      .withProperty("fetch.max.wait.ms", "5000")
-      .withProperty("fetch.min.bytes", "4096")
+      .withProperty("fetch.max.wait.ms", "500")
+      .withProperty("fetch.min.bytes", "1048576")
+      .withProperty("enable.auto.commit", "true")
+      .withProperty("auto.commit.interval.ms", "500")
 
     Consumer.plainSource(consumerSettings, Subscriptions.topics("heat"))
       .map(message => message.value())

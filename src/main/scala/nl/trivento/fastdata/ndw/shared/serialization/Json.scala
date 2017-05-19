@@ -11,7 +11,7 @@ import java.util.Map
 /**
   * Created by koen on 27/02/2017.
   */
-class JsonSerializer[T](cls: Class[T]) extends Serializer[T] {
+class TypedJsonSerializer[T](cls: Class[T]) extends Serializer[T] {
   private val mapper = new ObjectMapper()
 
   mapper.setDefaultTyping(new DefaultTypeResolverBuilder(null) {

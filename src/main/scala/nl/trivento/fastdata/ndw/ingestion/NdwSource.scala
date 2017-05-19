@@ -5,9 +5,12 @@ import java.util.zip.GZIPInputStream
 import java.util.{Properties, UUID}
 
 import nl.trivento.fastdata.api.{ScalaKafkaProducer, XmlIngestor}
-import nu.ndw.{MeasurementSiteRecord, SiteMeasurements, SituationRecord}
+import nl.trivento.fastdata.ndw.shared.serialization.TypedJsonSerializer
+import nl.trivento.fastdata.ndw.{Measurement, Sensor}
+import nu.ndw.{MeasurementSiteRecord, SiteMeasurements}
 import org.apache.kafka.clients.producer.ProducerRecord
-import org.apache.kafka.common.serialization.StringSerializer
+import org.apache.kafka.common.serialization.{BytesSerializer, StringSerializer}
+import org.apache.kafka.common.utils.Bytes
 
 import scala.concurrent.ExecutionContext
 import scala.xml.Elem
@@ -16,12 +19,11 @@ import scala.xml.Elem
   * Created by koen on 13/02/2017.5
   */
 class NdwProducer(config: Properties) {
-  private val producer = new ScalaKafkaProducer[String, String](config, new StringSerializer, new StringSerializer)
+  private val producer = new ScalaKafkaProducer[String, Bytes](config, new StringSerializer, new BytesSerializer)
   private implicit val ec: ExecutionContext = ExecutionContext.global
 
-  def send(topic: String, key: String, xml: String): Unit = {
-    producer.send(new ProducerRecord(topic, key, xml))
-      .onComplete(f => if (f.isFailure) f.failed.get.printStackTrace() else println(f.get.offset()))
+  def send(topic: String, key: String, data: Bytes): Unit = {
+    producer.send(new ProducerRecord(topic, key, data))
   }
 }
 
@@ -31,10 +33,16 @@ object NdwSource {
 
     //properties.put("compression.type", CompressionType.SNAPPY.name)
     properties.put("bootstrap.servers", "master:9092")
-    properties.put("acks", "-1")
+    properties.put("acks", "0")
+    properties.put("batch.size", "1048576")
+    properties.put("linger.ms", "500")
+    properties.put("buffer.memory", "33554432")
     properties.put("client.id", UUID.randomUUID().toString)
 
-    loadSituationRecords()
+    val sensorSerializer = new TypedJsonSerializer[Sensor](classOf[Sensor])
+    val measurementSerializer = new TypedJsonSerializer[Measurement](classOf[Measurement])
+
+    //    loadSituationRecords()
     loadMeasurementSiteRecords()
     loadSiteMeasurements()
 
@@ -42,26 +50,26 @@ object NdwSource {
       elem.attribute(name).map(nodes => nodes.map(_.toString)).getOrElse(Seq.empty).fold("")(_ + _)
     }
 
-    def loadSituationRecords(): Unit = {
-      properties.put("client.id", UUID.randomUUID().toString)
-      lazy val producer = new NdwProducer(properties)
-
-      XmlIngestor(
-        Map(
-          "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/situation/situationRecord/groupOfLocations/linearExtension/linearByCoordinatesExtension/" ->
-            (e => None),
-          "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/situation/situationRecord/groupOfLocations/pointExtension/pointExtension/" ->
-            (e => None),
-          "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/situation/situationRecord/" ->
-            (element => {
-//              val situationRecord: SituationRecord = scalaxb.fromXML[SituationRecord](element)
-              producer.send("incidents", getAttr(element, "id"), element.toString)
-              Option(element)
-            }
-          )
-        )
-      ).fromInputStream(new GZIPInputStream(new URL("http://opendata.ndw.nu/incidents.xml.gz").openStream()))
-    }
+//    def loadSituationRecords(): Unit = {
+//      properties.put("client.id", UUID.randomUUID().toString)
+//      lazy val producer = new NdwProducer(properties)
+//
+//      XmlIngestor(
+//        Map(
+//          "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/situation/situationRecord/groupOfLocations/linearExtension/linearByCoordinatesExtension/" ->
+//            (e => None),
+//          "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/situation/situationRecord/groupOfLocations/pointExtension/pointExtension/" ->
+//            (e => None),
+//          "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/situation/situationRecord/" ->
+//            (element => {
+////              val situationRecord: SituationRecord = scalaxb.fromXML[SituationRecord](element)
+//              producer.send("incidents", getAttr(element, "id"), element.toString)
+//              Option(element)
+//            }
+//          )
+//        )
+//      ).fromInputStream(new GZIPInputStream(new URL("http://opendata.ndw.nu/incidents.xml.gz").openStream()))
+//    }
 
     def loadMeasurementSiteRecords(): Unit = {
       properties.put("client.id", UUID.randomUUID().toString)
@@ -73,9 +81,10 @@ object NdwSource {
             (e => None),
           "/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/measurementSiteTable/measurementSiteRecord/" ->
             (element => {
-              val measurementSite: MeasurementSiteRecord = scalaxb.fromXML[MeasurementSiteRecord](element)
-              producer.send("sites", getAttr(element, "id"), element.toString)
-              Option(element)
+              Sensor.fromSiteMeasurement(scalaxb.fromXML[MeasurementSiteRecord](element)).foreach(
+                sensor => producer.send("sites", getAttr(element, "id"), new Bytes(sensorSerializer.serialize(null, sensor)))
+              )
+              None
             }
           )
         )
@@ -91,8 +100,11 @@ object NdwSource {
           ("/SOAP:Envelope/SOAP:Body/d2LogicalModel/payloadPublication/siteMeasurements/",
             element => {
               val siteMeasurements: SiteMeasurements = scalaxb.fromXML[SiteMeasurements](element)
-              producer.send("measurements", siteMeasurements.measurementSiteReference.id, element.toString)
-              Option(element)
+              Measurement.fromSiteMeasurements(siteMeasurements).foreach(
+                measurement => producer.send("measurements", siteMeasurements.measurementSiteReference.id,
+                  new Bytes(measurementSerializer.serialize(null, measurement)))
+              )
+              None
             }
           )
         )
