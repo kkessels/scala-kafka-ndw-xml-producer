@@ -21,53 +21,6 @@ import org.apache.kafka.common.serialization.StringDeserializer
 
 import scala.collection.mutable
 
-case class AddSubscription()
-
-case class Subscribe(listener: ActorRef, topic: ActorRef)
-
-case class RemoveSubscription()
-
-class CachingTopic[IN, K](getKey: (IN) => K, getValue: (IN) => String) extends Actor with ActorLogging {
-  private val cache = mutable.HashMap.empty[K, String]
-  private val subscriptions = mutable.HashSet.empty[ActorRef]
-
-  override def preStart(): Unit = {
-    super.preStart()
-  }
-
-  override def receive: Receive = {
-    case AddSubscription =>
-      context.watch(sender())
-      log.info("New subscription, send " + cache.values.size + " heat points in cache")
-      sender ! cache.values.toArray[String]
-      subscriptions.add(sender())
-    case RemoveSubscription =>
-      subscriptions.remove(sender())
-    case m: IN =>
-      val value = getValue(m)
-      cache.put(getKey(m), value)
-      subscriptions.foreach(_ ! Array(value))
-    case Terminated =>
-      subscriptions.remove(sender())
-  }
-}
-
-class Subscription[V] extends Actor with ActorLogging {
-  private var listener: Option[ActorRef] = None
-
-  override def receive: Receive = {
-    case s: Subscribe =>
-      context.become(subscription)
-      listener = Option(s.listener)
-      s.topic ! AddSubscription
-  }
-
-  def subscription: Receive = {
-    case values: Array[V] =>
-      listener.foreach(_ ! values)
-  }
-}
-
 object WebsocketsHeatmapServer {
   private implicit val actorSystem = ActorSystem.create()
   private implicit val materializer = ActorMaterializer.create(actorSystem)
@@ -75,15 +28,17 @@ object WebsocketsHeatmapServer {
   objectMapper.registerModule(DefaultScalaModule)
   private val hub = actorSystem.actorOf(
     Props(
-      new CachingTopic[Heat, LatLong](
+      new BufferingCachingTopic[Heat, LatLong](
         (heat: Heat) => heat.location,
-        (heat: Heat) => objectMapper.writeValueAsString(heat)
+        (heat: Heat) => objectMapper.writeValueAsString(heat),
+        30000,
+        25000
       )
     )
   )
 
   def start(): Unit = {
-    val BUFFER_SIZE = 65536
+    val BUFFER_SIZE = 65536 * 16
 
     val consumerSettings = ConsumerSettings[String, Heat](actorSystem, new StringDeserializer(),
       new TypedJsonDeserializer[Heat](classOf[Heat]))

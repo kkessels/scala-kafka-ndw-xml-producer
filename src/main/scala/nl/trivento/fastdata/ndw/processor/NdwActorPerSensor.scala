@@ -39,7 +39,8 @@ class SensorActor extends Actor {
   def speed: Receive = {
     case sensor: Sensor => becomeSensor(sensor)
     case m: Measurement =>
-      heatFunc.foreach(sender ! _(dev(m.value)))
+      val t = Trend(measurements.toArray)
+      heatFunc.foreach(sender ! _(-t.increment / t.start))
       measurements = (if (measurements.length == 10) measurements.tail else measurements) :+ m.value
   }
 
@@ -51,22 +52,14 @@ class SensorActor extends Actor {
   def traveltime: Receive = {
     case sensor: Sensor => becomeSensor(sensor)
     case m: Measurement =>
-      heatFunc.foreach(sender ! _(-dev(m.value)))
+      val t: Trend = Trend(measurements.toArray)
+      heatFunc.foreach(sender ! _(-t.increment / t.start))
       measurements = (if (measurements.length == 10) measurements.tail else measurements) :+ m.value
   }
 
   def useless: Receive = {
     case sensor: Sensor => becomeSensor(sensor)
     case m: Measurement =>
-  }
-
-  def dev(measurement: Double): Double = {
-    val all = measurements :+ measurement
-    val avg = all.sum / all.length
-    val dev = all.map(d => Math.pow(d - avg, 2)).sum / all.length
-    if (dev == 0) return 0
-    val stddev = Math.sqrt(dev)
-    if (stddev != 0) (measurement - avg) / stddev else 0
   }
 
   def becomeSensor(sensor: Sensor): Unit = {

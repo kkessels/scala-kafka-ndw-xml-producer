@@ -44,7 +44,13 @@ object NdwSource {
 
     //    loadSituationRecords()
     loadMeasurementSiteRecords()
-    loadSiteMeasurements()
+    System.out.println("Loaded site records")
+    while (true) {
+      val start = System.currentTimeMillis()
+      loadSiteMeasurements()
+      System.out.println("Loaded measurement records")
+      Thread.sleep(60000 - (System.currentTimeMillis() - start))
+    }
 
     def getAttr(elem: Elem, name: String): String = {
       elem.attribute(name).map(nodes => nodes.map(_.toString)).getOrElse(Seq.empty).fold("")(_ + _)
