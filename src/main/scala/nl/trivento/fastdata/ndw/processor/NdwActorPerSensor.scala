@@ -9,7 +9,7 @@ import akka.kafka.{ConsumerSettings, ProducerSettings, Subscriptions}
 import akka.stream.ActorMaterializer
 import nl.trivento.fastdata.ndw.shared.serialization.{TypedJsonDeserializer, TypedJsonSerializer}
 import nl.trivento.fastdata.ndw.{Measurement, Message, Sensor}
-import nu.ndw.PointCoordinates
+import generated.PointCoordinates
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.serialization.{StringDeserializer, StringSerializer}
 

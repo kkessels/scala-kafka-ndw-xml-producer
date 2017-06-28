@@ -1,30 +1,45 @@
 package nl.trivento.fastdata.ndw.processing
 
-import generated.{DurationValue, SiteMeasurements, TrafficFlowType, TrafficSpeed, TravelTimeData}
+import nl.trivento.fastdata.ndw.shared.serialization.MeasurementExtraJsonSerde
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
-import org.apache.spark.streaming.dstream.{DStream, InputDStream}
+import org.apache.spark.streaming.dstream.DStream
 import org.apache.spark.streaming.kafka010._
 import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
 import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
-import org.apache.spark.streaming.{Duration, StreamingContext}
+import org.apache.spark.streaming.{Milliseconds, Duration, StreamingContext}
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.mllib.feature.StandardScaler
+import org.apache.spark.mllib.clustering.StreamingKMeans
+import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.rdd.RDD
 
-import scala.xml.XML
+import scala.concurrent.duration.Duration
 
 /**
   * Created by kkessels on 07/03/17.
   */
 object SparkStreaming extends App {
 
-  case class SiteInfo(id: String, speeds: List[Float],
-                      intensities: List[BigInt],
-                      travelTimes: List[Float])
+  case class MeasurementExtra(id: NdwSensorId,
+                              time: Long,
+                              speed: Option[Float],
+                              intensity: Option[BigInt],
+                              travelTimes: Option[(Float, Float, Float)]
+                             ) extends Message
+
+  case class NdwSensorId(id: String, index: Int)
+
+  trait Message {
+    val id: NdwSensorId
+  }
+
+  val bootstrapServers = "localhost:9092" //"broker-0.kafka.mesos:9671"
 
   val kafkaParams = Map[String, Object](
-    "bootstrap.servers" -> "broker-0.kafka.mesos:9671",
+    "bootstrap.servers" -> bootstrapServers,
     "key.deserializer" -> classOf[StringDeserializer],
-    "value.deserializer" -> classOf[StringDeserializer],
+    "value.deserializer" -> classOf[MeasurementExtraJsonSerde],
     "group.id" -> "spark-stream-test",
     "auto.offset.reset" -> "earliest",
     "enable.auto.commit" -> (false: java.lang.Boolean)
@@ -33,71 +48,72 @@ object SparkStreaming extends App {
   val sparkSession = SparkSession
     .builder
     .master("local[2]")
-    .appName("spark-streaming-yay")
+    .appName("spark-streaming-ml")
     .getOrCreate()
+  sparkSession.sparkContext.setLogLevel("WARN")
 
-  val streamingContext = new StreamingContext(sparkSession.sparkContext, Duration(1*1000))
+  val numClusters = 4
+  val decayFactor = 1.0
+  val randomCentersDim = 2
+  val randomCentersWeight = 0.0
 
-  val topics = List("measurements")
-  val stream: InputDStream[ConsumerRecord[String, String]] = KafkaUtils.createDirectStream[String, String](
+  val microbatchDuration = Duration(500)
+  val streamingContext = new StreamingContext(sparkSession.sparkContext, microbatchDuration)
+
+  val topics = List("measurementsExtra")
+
+  val stream: DStream[ConsumerRecord[String, MeasurementExtra]] = KafkaUtils.createDirectStream[String, MeasurementExtra](
     streamingContext,
     PreferConsistent,
-    Subscribe[String, String](topics, kafkaParams)
+    Subscribe[String, MeasurementExtra](topics, kafkaParams)
   )
 
-  val processedData: DStream[(Float, BigInt, Float)] = stream.map(record => {
-    val d = scalaxb.fromXML[SiteMeasurements](
-      XML.loadString(
-        record.value()
-      )
-    )
+  val vectorStream: DStream[Vector] = stream.map{ record =>
+    val measurement = record.value
 
-    val id = d.measurementSiteReference.id
-    val data = d.measuredValue.flatMap(_.measuredValue.basicData)
+    val intensity = measurement.intensity match { case Some(b: BigInt) => b.toDouble case _ => 0.0 }
+    val speed = measurement.speed match { case Some(f: Float) => f.toDouble case _ => 0.0 }
+//    val (tt1, tt2, tt3) = measurement.travelTimes match {
+//      case Some((f1: Float, f2: Float, f3: Float)) => (f1.toDouble, f2.toDouble, f3.toDouble) case _ => (0.0f, 0.0f, 0.0f)
+//    }
 
-    val speeds = data.flatMap { _ match {
-      case speed: TrafficSpeed => speed.averageVehicleSpeed
-        .filterNot(_.dataError.getOrElse(false))
-        .map(_.speed)
-      case _ => None
-    }}.toList
+    Vectors.dense(0, intensity)//, speed)//, tt1, tt2, tt3)
+  }
 
-    val intensities = data.flatMap { _ match {
-      case intensity: TrafficFlowType => intensity.vehicleFlow
-        .filterNot(_.dataError.getOrElse(true))
-        .map(_.vehicleFlowRate)
-      case _ => None
-    }}.toList
+//  val trafficData: DStream[Vector] = vectorStream.transform(normalize)
 
-    val travelTimes = (for {
-      ttd : TravelTimeData <- data.collect({case t: TravelTimeData => t})
-      fftt: DurationValue <- ttd.freeFlowTravelTime
-      nett: DurationValue <- ttd.normallyExpectedTravelTime
-      tt: DurationValue <- ttd.travelTime
-    } yield /*(fftt.duration, nett.duration, */tt.duration).toList
+  val model = new StreamingKMeans()
+    .setK(numClusters)
+    .setDecayFactor(decayFactor)
+    .setRandomCenters(randomCentersDim, randomCentersWeight)
 
-//    val travelTimes = data.flatMap { _ match {
-//      case travelTimes: TravelTimeData => travelTimes.travelTime
-//    }}
+  model.trainOn(vectorStream)
 
-    //      val test = data.flatMap{
-    //        case t: TrafficFlowType => Option(t)
-    //        case _ => None
-    //      }
-    //      test
-    SiteInfo(id, speeds, intensities, travelTimes)
-  }).reduceByWindow((current, next) =>
-    SiteInfo("averages", current.speeds ::: next.speeds, current.intensities ::: next.intensities, current.travelTimes ::: next.travelTimes)
-    , Duration(1*1000), Duration(1*1000)
-  ).map(record =>
-    (if(record.speeds.nonEmpty) record.speeds.sum / record.speeds.length else 0,
-      if(record.intensities.nonEmpty) record.intensities.sum / record.intensities.length else 0,
-      if(record.travelTimes.nonEmpty) record.travelTimes.sum / record.travelTimes.length else 0)
-    )
+  val skmodel = model.latestModel()
 
-  processedData.print()
+  println("Cluster centers: ")
+  skmodel.clusterCenters.foreach(println)
+  println("Cluster weights: ")
+  skmodel.clusterWeights.foreach(println)
+
+  val predictClusters: DStream[Int] = model.predictOn(vectorStream)
+
+  predictClusters.countByValue().print()
+
+  predictClusters.foreachRDD{ rdd => println("Samples in batch: " + rdd.count())}
+
+  predictClusters.foreachRDD{ rdd => if(!rdd.isEmpty()){ println(s"first = ${rdd.first()}") }}
+
+  sys.ShutdownHookThread {
+    streamingContext.stop(stopSparkContext = true, stopGracefully =  true)
+  }
 
   streamingContext.start()
-
   streamingContext.awaitTermination()
+
+  private def normalize: RDD[Vector] => RDD[Vector] = { rdd =>
+    if (rdd.isEmpty()) rdd else {
+      new StandardScaler().fit(rdd).transform(rdd)
+    }
+  }
 }

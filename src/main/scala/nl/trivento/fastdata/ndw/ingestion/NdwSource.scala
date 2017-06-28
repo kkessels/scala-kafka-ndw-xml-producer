@@ -5,8 +5,8 @@ import java.util.zip.GZIPInputStream
 import java.util.{Properties, UUID}
 
 import nl.trivento.fastdata.api.{ScalaKafkaProducer, XmlIngestor}
-import nl.trivento.fastdata.ndw.shared.serialization.TypedJsonSerializer
-import nl.trivento.fastdata.ndw.{Measurement, Sensor}
+import nl.trivento.fastdata.ndw.shared.serialization.{MeasurementExtraJsonSerde, TypedJsonSerializer}
+import nl.trivento.fastdata.ndw.{Measurement, MeasurementExtra, Sensor}
 import generated.{MeasurementSiteRecord, SiteMeasurements}
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.serialization.{BytesSerializer, StringSerializer}
@@ -43,6 +43,7 @@ object NdwSource {
 
     val sensorSerializer = new TypedJsonSerializer[Sensor](classOf[Sensor])
     val measurementSerializer = new TypedJsonSerializer[Measurement](classOf[Measurement])
+    val measurementExtraSerializer = new MeasurementExtraJsonSerde
 
     //    loadSituationRecords()
     loadMeasurementSiteRecords()
@@ -105,6 +106,10 @@ object NdwSource {
               Measurement.fromSiteMeasurements(siteMeasurements).foreach(
                 measurement => producer.send("measurements", siteMeasurements.measurementSiteReference.id,
                   new Bytes(measurementSerializer.serialize(null, measurement)))
+              )
+              MeasurementExtra.fromSiteMeasurements(siteMeasurements).foreach(
+                measurement => producer.send("measurementsExtra", siteMeasurements.measurementSiteReference.id,
+                  new Bytes(measurementExtraSerializer.serialize(null, measurement)))
               )
               None
             }

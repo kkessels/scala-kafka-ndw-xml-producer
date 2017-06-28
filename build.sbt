@@ -30,31 +30,14 @@ val akkaHttpVersion = "10.0.3"
 val kafkaVersion = "0.10.1.1"
 val kafkaStreamsVersion = "0.10.1.1"
 
-val sparkVersion = "2.1.0"
-val sparkCoreVersion = "2.1.0"
-val sparkSqlVersion = "2.1.0"
-val sparkStreamingVersion = "2.1.0"
-val sparkStreamingKafkaVersion = "2.1.0"
+val sparkVersion = "2.1.1"
+val sparkCoreVersion = "2.1.1"
+val sparkSqlVersion = "2.1.1"
+val sparkStreamingVersion = "2.1.1"
+val sparkStreamingKafkaVersion = "2.1.1"
+val sparkMlVersion = "2.1.1"
 
 val dispatchVersion = "0.12.0"
-
-//lazy val dockerSettings = Seq(
-//  dockerfile in docker := {
-//    // The assembly task generates a fat JAR file
-//    val artifact: File = assembly.value
-//    val artifactTargetPath = s"/app/${artifact.name}"
-//
-//    new Dockerfile {
-//      from("java:openjdk-8-jre")
-//      add(artifact, artifactTargetPath)
-//      entryPoint("java", "-cp", artifactTargetPath, "nl.trivento.fastdata.ndw.ingestion.NdwSource")
-//    }
-//  },
-//
-//  imageNames in docker := Seq(
-//    ImageName(s"kkessels/ndw-test:latest")
-//  )
-//)
 
 lazy val dockerSettings = Seq(
   dockerfile in docker := {
@@ -102,7 +85,7 @@ lazy val root = (project in file("."))
 
 lazy val kafkaStreaming = (project in file("kafka-streaming"))
   .enablePlugins(DockerPlugin)
-  .enablePlugins(ScalaxbPlugin)
+//  .enablePlugins(ScalaxbPlugin)
   .dependsOn(root)
   .settings(
     dockerSettings,
@@ -115,18 +98,17 @@ lazy val kafkaStreaming = (project in file("kafka-streaming"))
 
 lazy val sparkStreaming = (project in file("spark-streaming"))
   .enablePlugins(DockerPlugin)
-  .enablePlugins(ScalaxbPlugin)
+//    .enablePlugins(ScalaxbPlugin)
   .settings(
     commonSettings,
     dockerSettings,
+    mainClass in (Compile, run) := Some("nl.trivento.fastdata.ndw.processing.SparkStreaming"),
     scalaVersion := "2.11.8",
     libraryDependencies ++= Seq(
       "org.apache.spark" %% "spark-core" % sparkVersion,
       "org.apache.spark" %% "spark-sql" % sparkVersion,
       "org.apache.spark" %% "spark-streaming" % sparkVersion,
       "org.apache.spark" %% "spark-streaming-kafka-0-10" % sparkVersion,
+      "org.apache.spark" %% "spark-mllib" % sparkMlVersion,
       "net.databinder.dispatch" %% "dispatch-core" % dispatchVersion
   ))
-  .settings(
-    scalaxbPackageName in (Compile, scalaxb) := "generated"
-  )
