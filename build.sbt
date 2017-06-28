@@ -51,12 +51,13 @@ lazy val dockerSettings = Seq(
       entryPoint("java", "-jar", artifactTargetPath, "-Xmx 3G")
     }
   },
-
   imageNames in docker := Seq(
     ImageName(s"kkessels/ndw-test-${assembly.value.getName.toLowerCase}:latest")
   )
 )
 
+resolvers +=
+  "Geotools snapshots" at "http://download.osgeo.org/webdav/geotools/"
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
@@ -76,7 +77,16 @@ lazy val root = (project in file("."))
       "com.typesafe.akka" %% "akka-stream-kafka" % akkaStreamKafka,
       "com.typesafe.akka" %% "akka-http-core" % akkaHttpCoreVersion,
       "com.typesafe.akka" %% "akka-http" % akkaHttpVersion,
-      "net.databinder.dispatch" %% "dispatch-core" % dispatchVersion
+      "net.databinder.dispatch" %% "dispatch-core" % dispatchVersion,
+      "org.scala-lang.modules" %% "scala-xml" % "1.0.6",
+      "org.apache.kafka" % "kafka_2.12" % "0.10.1.1",
+      //  "org.apache.commons" % "commons-lang3" % "3.5",
+      "com.typesafe.akka" %% "akka-actor" % "2.4.16",
+      "com.typesafe.akka" %% "akka-stream-kafka" % "0.13",
+      "com.typesafe.akka" %% "akka-http-core" % "10.0.3",
+      "com.typesafe.akka" %% "akka-http" % "10.0.3",
+      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.8.7",
+      "org.geotools" % "gt-shapefile" % "17.0"
   ))
   .settings(
     scalaxbPackageName in (Compile, scalaxb) := "generated",
@@ -88,6 +98,7 @@ lazy val kafkaStreaming = (project in file("kafka-streaming"))
 //  .enablePlugins(ScalaxbPlugin)
   .dependsOn(root)
   .settings(
+    commonSettings,
     dockerSettings,
     libraryDependencies ++= Seq(
       "org.apache.kafka" % "kafka-streams" % kafkaStreamsVersion
